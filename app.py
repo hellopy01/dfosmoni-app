@@ -29,22 +29,13 @@ def load_css():
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Pure white background - permanent */
+    /* Professional white/blue background */
     .main {
-        background: #ffffff !important;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     }
     
     .stApp {
-        background: #ffffff !important;
-    }
-    
-    /* Force white background everywhere */
-    [data-testid="stAppViewContainer"] {
-        background: #ffffff !important;
-    }
-    
-    [data-testid="stHeader"] {
-        background: #ffffff !important;
+        background: transparent;
     }
     
     /* Login container styling - Clean white card */
@@ -108,27 +99,11 @@ def load_css():
     .stTextInput>div>div>input {
         border-radius: 8px;
         border: 1px solid #cbd5e1;
-        background: white;
     }
     
     .stTextInput>div>div>input:focus {
         border-color: #2563eb;
         box-shadow: 0 0 0 1px #2563eb;
-    }
-    
-    /* Sidebar white background */
-    [data-testid="stSidebar"] {
-        background: #ffffff !important;
-    }
-    
-    /* Ensure all containers are white */
-    .element-container {
-        background: transparent !important;
-    }
-    
-    /* Block container white */
-    .block-container {
-        background: transparent !important;
     }
     </style>
     """, unsafe_allow_html=True)

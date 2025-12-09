@@ -17,12 +17,12 @@ def show_login_page():
         st.markdown("""
             <div style='text-align: center; padding: 2rem 0 1rem 0;'>
                 <h1 style='color: #1e40af; font-size: 2.5rem; margin-bottom: 0.5rem; font-weight: 700;'>
-                     DFOS Monitoring
+                    🔬 DFOS Monitoring
                 </h1>
-                <p style='color: #64748b; font-size: 1rem; margin: 0;'>
+                <p style='color: #475569; font-size: 1rem; margin: 0;'>
                     Distributed Fiber Optic Sensing System
                 </p>
-                <p style='color: #94a3b8; font-size: 0.875rem; margin-top: 0.25rem;'>
+                <p style='color: #64748b; font-size: 0.875rem; margin-top: 0.25rem;'>
                     Tunnel Strain & Temperature Monitoring
                 </p>
             </div>
@@ -30,14 +30,14 @@ def show_login_page():
         
         # Login container
         with st.container():
-            # st.markdown('<div class="login-container">', unsafe_allow_html=True)
+            st.markdown('<div class="login-container">', unsafe_allow_html=True)
             
-            # # Login form header - Clean and simple
-            # st.markdown("""
-            #     <h2 style='text-align: center; color: #1e293b; margin-bottom: 2rem; font-weight: 600; font-size: 1.5rem;'>
-            #         Sign In
-            #     </h2>
-            # """, unsafe_allow_html=True)
+            # Login form header - Clean and simple
+            st.markdown("""
+                <h2 style='text-align: center; color: #1e293b; margin-bottom: 2rem; font-weight: 600; font-size: 1.5rem;'>
+                    Sign In
+                </h2>
+            """, unsafe_allow_html=True)
             
             # Check for locked account message
             if st.session_state.locked_until:
@@ -90,9 +90,9 @@ def show_login_page():
             
             # Footer - Clean and professional
             st.markdown("""
-                <div style='text-align: center; margin-top: 2rem; color: #94a3b8; font-size: 0.875rem;'>
+                <div style='text-align: center; margin-top: 2rem; color: #64748b; font-size: 0.875rem;'>
                     <p>© 2024 DFOS Monitoring System | Secure Access</p>
-                    <p style='margin-top: 0.5rem; color: #cbd5e1;'>
+                    <p style='margin-top: 0.5rem; color: #94a3b8;'>
                         🔒 All connections are encrypted
                     </p>
                 </div>

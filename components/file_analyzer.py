@@ -150,9 +150,9 @@ def create_plotly_chart(distance, data, title, ylabel, color='#667eea'):
 # ============================================
 
 def show_single_file_analysis():
-    """File analysis page"""
+    """Single file analysis page"""
     
-    st.subheader("File Analysis")
+    st.subheader("📊 Single File Analysis")
     st.markdown("Upload a BTS HDF5 file for Temperature and Strain analysis")
     
     # File upload
@@ -226,50 +226,234 @@ def show_single_file_analysis():
             
             # Display plots based on file type
             if result['file_type'] == 'TempStrain':
-                # Temperature Plot
+                # ============================================
+                # TEMPERATURE PLOT WITH CONTROLS
+                # ============================================
                 st.markdown("### 🌡️ Temperature Distribution")
+                
+                # Controls in expander for cleaner look
+                with st.expander("⚙️ Temperature Controls", expanded=True):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        temp_offset = st.number_input(
+                            "Y-Axis Offset (°C)",
+                            value=0.0,
+                            step=0.1,
+                            format="%.2f",
+                            key="temp_offset",
+                            help="Add/subtract offset (e.g., +2.5 or -1.0)"
+                        )
+                    with col2:
+                        temp_x_min = st.number_input(
+                            "X-Axis Min",
+                            value=0,
+                            min_value=0,
+                            max_value=int(result['distance_points']-1),
+                            key="temp_x_min",
+                            help="Start distance index"
+                        )
+                    with col3:
+                        temp_x_max = st.number_input(
+                            "X-Axis Max",
+                            value=int(result['distance_points']-1),
+                            min_value=int(temp_x_min + 1),
+                            max_value=int(result['distance_points']-1),
+                            key="temp_x_max",
+                            help="End distance index"
+                        )
+                
+                # Apply offset
+                temp_data_with_offset = result['temp_first'] + temp_offset
+                
+                # Apply X-axis range filter
+                x_mask_temp = (result['distance'] >= temp_x_min) & (result['distance'] <= temp_x_max)
+                filtered_distance_temp = result['distance'][x_mask_temp]
+                filtered_temp = temp_data_with_offset[x_mask_temp]
+                
+                # Show applied settings
+                st.caption(f"📊 Showing: Distance {temp_x_min} to {temp_x_max} | Y-Offset: {temp_offset:+.2f}°C | Points: {len(filtered_temp)}")
+                
+                # Create and display plot
                 temp_fig = create_plotly_chart(
-                    result['distance'],
-                    result['temp_first'],
-                    "Temperature vs Distance (First Sweep)",
+                    filtered_distance_temp,
+                    filtered_temp,
+                    f"Temperature vs Distance (Offset: {temp_offset:+.2f}°C)",
                     "Temperature (°C)",
                     color='#e74c3c'
                 )
-                st.plotly_chart(temp_fig, use_container_width=True)
+                st.plotly_chart(temp_fig, use_container_width=True, key="temp_plot")
                 
-                # Strain Plot
+                # ============================================
+                # STRAIN PLOT WITH CONTROLS
+                # ============================================
                 st.markdown("### 📏 Strain Distribution")
+                
+                # Controls in expander for cleaner look
+                with st.expander("⚙️ Strain Controls", expanded=True):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        strain_offset = st.number_input(
+                            "Y-Axis Offset (µε)",
+                            value=0.0,
+                            step=1.0,
+                            format="%.2f",
+                            key="strain_offset",
+                            help="Add/subtract offset (e.g., +10 or -5)"
+                        )
+                    with col2:
+                        strain_x_min = st.number_input(
+                            "X-Axis Min",
+                            value=0,
+                            min_value=0,
+                            max_value=int(result['distance_points']-1),
+                            key="strain_x_min",
+                            help="Start distance index"
+                        )
+                    with col3:
+                        strain_x_max = st.number_input(
+                            "X-Axis Max",
+                            value=int(result['distance_points']-1),
+                            min_value=int(strain_x_min + 1),
+                            max_value=int(result['distance_points']-1),
+                            key="strain_x_max",
+                            help="End distance index"
+                        )
+                
+                # Apply offset
+                strain_data_with_offset = result['strain_first'] + strain_offset
+                
+                # Apply X-axis range filter
+                x_mask_strain = (result['distance'] >= strain_x_min) & (result['distance'] <= strain_x_max)
+                filtered_distance_strain = result['distance'][x_mask_strain]
+                filtered_strain = strain_data_with_offset[x_mask_strain]
+                
+                # Show applied settings
+                st.caption(f"📊 Showing: Distance {strain_x_min} to {strain_x_max} | Y-Offset: {strain_offset:+.2f}µε | Points: {len(filtered_strain)}")
+                
+                # Create and display plot
                 strain_fig = create_plotly_chart(
-                    result['distance'],
-                    result['strain_first'],
-                    "Strain vs Distance (First Sweep)",
+                    filtered_distance_strain,
+                    filtered_strain,
+                    f"Strain vs Distance (Offset: {strain_offset:+.2f}µε)",
                     "Strain (µε)",
                     color='#3498db'
                 )
-                st.plotly_chart(strain_fig, use_container_width=True)
+                st.plotly_chart(strain_fig, use_container_width=True, key="strain_plot")
             
             else:  # BrillFrequency
-                # Frequency Plot
+                # ============================================
+                # FREQUENCY PLOT WITH CONTROLS
+                # ============================================
                 st.markdown("### 📊 Brillouin Frequency Distribution")
+                
+                # Controls in expander for cleaner look
+                with st.expander("⚙️ Frequency Controls", expanded=True):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        freq_offset = st.number_input(
+                            "Y-Axis Offset (GHz)",
+                            value=0.0,
+                            step=0.01,
+                            format="%.3f",
+                            key="freq_offset",
+                            help="Add/subtract offset (e.g., +0.05 or -0.02)"
+                        )
+                    with col2:
+                        freq_x_min = st.number_input(
+                            "X-Axis Min",
+                            value=0,
+                            min_value=0,
+                            max_value=int(result['distance_points']-1),
+                            key="freq_x_min",
+                            help="Start distance index"
+                        )
+                    with col3:
+                        freq_x_max = st.number_input(
+                            "X-Axis Max",
+                            value=int(result['distance_points']-1),
+                            min_value=int(freq_x_min + 1),
+                            max_value=int(result['distance_points']-1),
+                            key="freq_x_max",
+                            help="End distance index"
+                        )
+                
+                # Apply offset
+                freq_data_with_offset = result['freq_first'] + freq_offset
+                
+                # Apply X-axis range filter
+                x_mask_freq = (result['distance'] >= freq_x_min) & (result['distance'] <= freq_x_max)
+                filtered_distance_freq = result['distance'][x_mask_freq]
+                filtered_freq = freq_data_with_offset[x_mask_freq]
+                
+                # Show applied settings
+                st.caption(f"📊 Showing: Distance {freq_x_min} to {freq_x_max} | Y-Offset: {freq_offset:+.3f}GHz | Points: {len(filtered_freq)}")
+                
+                # Create and display plot
                 freq_fig = create_plotly_chart(
-                    result['distance'],
-                    result['freq_first'],
-                    "Frequency vs Distance (First Sweep)",
+                    filtered_distance_freq,
+                    filtered_freq,
+                    f"Frequency vs Distance (Offset: {freq_offset:+.3f}GHz)",
                     "Frequency (GHz)",
                     color='#9b59b6'
                 )
-                st.plotly_chart(freq_fig, use_container_width=True)
+                st.plotly_chart(freq_fig, use_container_width=True, key="freq_plot")
                 
-                # Amplitude Plot
+                # ============================================
+                # AMPLITUDE PLOT WITH CONTROLS
+                # ============================================
                 st.markdown("### 📈 Brillouin Amplitude Distribution")
+                
+                # Controls in expander for cleaner look
+                with st.expander("⚙️ Amplitude Controls", expanded=True):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        amp_offset = st.number_input(
+                            "Y-Axis Offset",
+                            value=0.0,
+                            step=0.01,
+                            format="%.3f",
+                            key="amp_offset",
+                            help="Add/subtract offset (e.g., +0.1 or -0.05)"
+                        )
+                    with col2:
+                        amp_x_min = st.number_input(
+                            "X-Axis Min",
+                            value=0,
+                            min_value=0,
+                            max_value=int(result['distance_points']-1),
+                            key="amp_x_min",
+                            help="Start distance index"
+                        )
+                    with col3:
+                        amp_x_max = st.number_input(
+                            "X-Axis Max",
+                            value=int(result['distance_points']-1),
+                            min_value=int(amp_x_min + 1),
+                            max_value=int(result['distance_points']-1),
+                            key="amp_x_max",
+                            help="End distance index"
+                        )
+                
+                # Apply offset
+                amp_data_with_offset = result['amp_first'] + amp_offset
+                
+                # Apply X-axis range filter
+                x_mask_amp = (result['distance'] >= amp_x_min) & (result['distance'] <= amp_x_max)
+                filtered_distance_amp = result['distance'][x_mask_amp]
+                filtered_amp = amp_data_with_offset[x_mask_amp]
+                
+                # Show applied settings
+                st.caption(f"📊 Showing: Distance {amp_x_min} to {amp_x_max} | Y-Offset: {amp_offset:+.3f} | Points: {len(filtered_amp)}")
+                
+                # Create and display plot
                 amp_fig = create_plotly_chart(
-                    result['distance'],
-                    result['amp_first'],
-                    "Amplitude vs Distance (First Sweep)",
+                    filtered_distance_amp,
+                    filtered_amp,
+                    f"Amplitude vs Distance (Offset: {amp_offset:+.3f})",
                     "Amplitude (a.u.)",
                     color='#16a085'
                 )
-                st.plotly_chart(amp_fig, use_container_width=True)
+                st.plotly_chart(amp_fig, use_container_width=True, key="amp_plot")
             
             st.divider()
             

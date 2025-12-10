@@ -1,6 +1,6 @@
 """
-File Analysis Components
-Single file and comparison analysis with your exact HDF5 processing logic
+File Analysis Components - COMPLETE WITH MULTIPLE FILE UPLOAD
+Fixed: Added missing export functions and corrected offset logic
 """
 
 import streamlit as st
@@ -103,14 +103,36 @@ def process_bts_file(file_obj):
             else:
                 return {
                     'success': False,
-                    'error': f'Unsupported file structure. Found: StrainData={has_strain}, TempData={has_temp}, FreqData={has_freq}, AmpData={has_amp}'
+                    'error': 'Unknown file format. File must contain either (StrainData + TemperatureData) or (FrequencyData + AmplitudeData)'
                 }
-    
+                
     except Exception as e:
         return {
             'success': False,
             'error': str(e)
         }
+
+# ============================================
+# EXPORT FUNCTIONS
+# ============================================
+
+def export_to_csv(distance, temp, strain):
+    """Export TempStrain data to CSV"""
+    df = pd.DataFrame({
+        'Distance_Index': distance,
+        'Temperature_C': temp,
+        'Strain_ue': strain
+    })
+    return df.to_csv(index=False)
+
+def export_to_csv_brillouin(distance, freq, amp):
+    """Export BrillFrequency data to CSV"""
+    df = pd.DataFrame({
+        'Distance_Index': distance,
+        'Frequency_GHz': freq,
+        'Amplitude': amp
+    })
+    return df.to_csv(index=False)
 
 # ============================================
 # INTERACTIVE PLOTTING WITH PLOTLY
@@ -146,375 +168,434 @@ def create_plotly_chart(distance, data, title, ylabel, color='#667eea'):
     return fig
 
 # ============================================
-# SINGLE FILE ANALYSIS
+# MULTIPLE FILE ANALYSIS
 # ============================================
 
 def show_single_file_analysis():
-    """Single file analysis page"""
+    """Multiple File Analysis with individual and batch processing"""
     
-    st.subheader("📊 Single File Analysis")
-    st.markdown("Upload a BTS HDF5 file for Temperature and Strain analysis")
+    st.markdown("## 📁 Multiple File Analysis")
     
-    # File upload
-    col1, col2 = st.columns([2, 1])
+    # Initialize session state
+    if 'num_upload_slots' not in st.session_state:
+        st.session_state.num_upload_slots = 1
+    if 'processed_files' not in st.session_state:
+        st.session_state.processed_files = {}
     
+    # Upload section header
+    col1, col2 = st.columns([4, 1])
     with col1:
-        uploaded_file = st.file_uploader(
-            "Choose HDF5 File (.h5, .bts)",
-            type=['h5', 'bts'],
-            key='single_file',
-            help="Upload DFOS Brillouin data file"
-        )
-    
+        st.markdown("### 📤 Upload Files")
+        st.caption("Add multiple files for analysis")
     with col2:
-        if uploaded_file:
-            st.success("✅ File loaded")
-            st.caption(f"**Name:** {uploaded_file.name}")
-            st.caption(f"**Size:** {uploaded_file.size / 1024:.1f} KB")
+        if st.button("➕ Add Slot", type="primary", use_container_width=True):
+            st.session_state.num_upload_slots += 1
+            st.rerun()
     
-    if uploaded_file is not None:
-        
-        # Process button
-        if st.button("🔬 Process File", type="primary", use_container_width=True):
+    st.divider()
+    
+    # Track uploaded files
+    uploaded_files_dict = {}
+    
+    # Display upload slots
+    for i in range(st.session_state.num_upload_slots):
+        with st.container():
+            cols = st.columns([5, 2, 1])
             
-            with st.spinner("Processing file..."):
-                result = process_bts_file(uploaded_file)
+            with cols[0]:
+                uploaded = st.file_uploader(
+                    f"File Slot {i+1}",
+                    type=['h5', 'bts'],
+                    key=f"upload_slot_{i}",
+                    label_visibility="collapsed"
+                )
+                if uploaded:
+                    uploaded_files_dict[f"slot_{i}"] = {
+                        'file': uploaded,
+                        'name': uploaded.name,
+                        'size': uploaded.size
+                    }
+            
+            with cols[1]:
+                if uploaded:
+                    if st.button(f"🔍 Process", key=f"process_{i}", use_container_width=True):
+                        with st.spinner(f"Processing {uploaded.name}..."):
+                            try:
+                                result = process_bts_file(uploaded)
+                                if result['success']:
+                                    st.session_state.processed_files[uploaded.name] = result
+                                    st.success(f"✅ Done")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {result.get('error', 'Unknown error')}")
+                            except Exception as e:
+                                st.error(f"❌ {str(e)[:50]}")
+            
+            with cols[2]:
+                if st.button("🗑️", key=f"remove_slot_{i}", help="Remove this slot"):
+                    # Remove from processed files if exists
+                    if uploaded and uploaded.name in st.session_state.processed_files:
+                        del st.session_state.processed_files[uploaded.name]
+                    # Decrease slot count (minimum 1)
+                    st.session_state.num_upload_slots = max(1, st.session_state.num_upload_slots - 1)
+                    st.rerun()
+    
+    # Batch processing section
+    if uploaded_files_dict:
+        st.divider()
+        cols = st.columns([2, 2, 2])
+        with cols[0]:
+            st.metric("📁 Files Added", len(uploaded_files_dict))
+        with cols[1]:
+            st.metric("✅ Processed", len(st.session_state.processed_files))
+        with cols[2]:
+            if st.button("🚀 Process All", type="primary", use_container_width=True):
+                progress = st.progress(0)
+                status = st.empty()
+                total = len(uploaded_files_dict)
                 
-                if result['success']:
-                    st.session_state.single_result = result
-                    st.session_state.single_filename = uploaded_file.name
-                    st.success("✅ File processed successfully!")
+                for idx, (slot_id, file_info) in enumerate(uploaded_files_dict.items()):
+                    fname = file_info['name']
                     
-                    # Add to history
-                    if 'processing_history' not in st.session_state:
-                        st.session_state.processing_history = []
+                    # Skip if already processed
+                    if fname in st.session_state.processed_files:
+                        continue
                     
-                    st.session_state.processing_history.append({
-                        'Timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'Filename': uploaded_file.name,
-                        'Type': 'Single Analysis',
-                        'Distance Points': result['distance_points'],
-                        'Status': 'Success'
-                    })
-                else:
-                    st.error(f"❌ Error processing file: {result['error']}")
+                    status.text(f"Processing {fname}...")
+                    
+                    try:
+                        result = process_bts_file(file_info['file'])
+                        if result['success']:
+                            st.session_state.processed_files[fname] = result
+                    except Exception as e:
+                        st.error(f"❌ {fname}: {str(e)[:30]}")
+                    
+                    progress.progress((idx + 1) / total)
+                
+                status.text("✅ All files processed!")
+                st.rerun()
+    
+    # Display results
+    if st.session_state.processed_files:
+        st.divider()
+        st.markdown("## 📊 Analysis Results")
         
-        # Display results if available
-        if 'single_result' in st.session_state:
-            result = st.session_state.single_result
+        # Clear all button
+        col1, col2 = st.columns([5, 1])
+        with col2:
+            if st.button("🗑️ Clear All", type="secondary", use_container_width=True):
+                st.session_state.processed_files = {}
+                st.rerun()
+        
+        # Show each file's results
+        for filename, result in list(st.session_state.processed_files.items()):
+            st.markdown("---")
             
-            st.divider()
+            # File header
+            cols = st.columns([5, 1])
+            with cols[0]:
+                emoji = "🌡️" if result['file_type'] == 'TempStrain' else "📡"
+                st.markdown(f"### {emoji} **{filename}**")
+                st.caption(f"📊 Type: **{result['file_type']}** | Distance Points: **{result['distance_points']}** | Time Samples: **{len(result['time'])}**")
+            with cols[1]:
+                if st.button("❌ Remove", key=f"del_{filename}", help="Remove this file", use_container_width=True):
+                    del st.session_state.processed_files[filename]
+                    st.rerun()
             
-            # Show file type
-            file_type_badge = "🌡️ Temperature & Strain" if result['file_type'] == 'TempStrain' else "📊 Frequency & Amplitude"
-            st.info(f"**File Type:** {file_type_badge}")
+            # Create unique file ID (clean filename for keys)
+            file_id = filename.replace('.', '_').replace(' ', '_').replace('-', '_').replace('(', '').replace(')', '')
             
-            # Metadata
-            with st.expander("📋 File Metadata", expanded=True):
-                col1, col2, col3 = st.columns(3)
+            # Initialize reset counters for this file
+            for plot_type in ['temp', 'strain', 'freq', 'amp']:
+                key = f'{plot_type}_reset_{file_id}'
+                if key not in st.session_state:
+                    st.session_state[key] = 0
+            
+            # Export options
+            with st.expander("📥 Export Options", expanded=False):
+                col1, col2 = st.columns(2)
+                
                 with col1:
-                    st.metric("Distance Points", result['distance_points'])
-                with col2:
-                    st.metric("Time Samples", len(result['time']))
-                with col3:
+                    # CSV Export
                     if result['file_type'] == 'TempStrain':
-                        st.metric("Data Shape", f"{result['metadata']['strain_shape']}")
+                        csv_data = export_to_csv(result['distance'], result['temp_first'], result['strain_first'])
                     else:
-                        st.metric("Data Shape", f"{result['metadata']['freq_shape']}")
-            
-            st.divider()
+                        csv_data = export_to_csv_brillouin(result['distance'], result['freq_first'], result['amp_first'])
+                    
+                    st.download_button(
+                        "📄 Download CSV",
+                        csv_data,
+                        f"{filename}_analysis.csv",
+                        "text/csv",
+                        key=f"csv_{file_id}",
+                        use_container_width=True
+                    )
+                
+                with col2:
+                    # PDF Export
+                    if st.button("📥 Generate PDF", key=f"pdf_btn_{file_id}", use_container_width=True):
+                        with st.spinner("Generating PDF..."):
+                            try:
+                                pdf_bytes = generate_pdf_report(result, filename, 'single')
+                                st.download_button(
+                                    "⬇️ Download PDF",
+                                    pdf_bytes,
+                                    f"{filename}_report.pdf",
+                                    "application/pdf",
+                                    key=f"pdf_dl_{file_id}",
+                                    use_container_width=True
+                                )
+                            except Exception as e:
+                                st.error(f"PDF generation failed: {str(e)}")
             
             # Display plots based on file type
             if result['file_type'] == 'TempStrain':
                 # ============================================
-                # TEMPERATURE PLOT WITH CONTROLS
+                # TEMPERATURE PLOT
                 # ============================================
-                st.markdown("### 🌡️ Temperature Distribution")
+                st.markdown(f"#### 🌡️ Temperature - {filename}")
                 
-                # Controls in expander for cleaner look
-                with st.expander("⚙️ Temperature Controls", expanded=True):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        temp_offset = st.number_input(
+                # Reset button
+                if st.button(f"🔄 Reset Temperature", key=f"rst_temp_{file_id}", type="secondary"):
+                    st.session_state[f'temp_reset_{file_id}'] += 1
+                    st.rerun()
+                
+                # Controls
+                with st.expander("⚙️ Temperature Controls", expanded=False):
+                    c1, c2, c3 = st.columns(3)
+                    reset_count = st.session_state[f'temp_reset_{file_id}']
+                    
+                    with c1:
+                        # FIXED: Changed to negative step for subtraction by default
+                        t_off = st.number_input(
                             "Y-Axis Offset (°C)",
                             value=0.0,
                             step=0.1,
                             format="%.2f",
-                            key="temp_offset",
-                            help="Add/subtract offset (e.g., +2.5 or -1.0)"
+                            key=f"toff_{file_id}_{reset_count}",
+                            help="Positive = Add, Negative = Subtract"
                         )
-                    with col2:
-                        temp_x_min = st.number_input(
+                    with c2:
+                        t_min = st.number_input(
                             "X-Axis Min",
                             value=0,
                             min_value=0,
                             max_value=int(result['distance_points']-1),
-                            key="temp_x_min",
-                            help="Start distance index"
+                            key=f"tmin_{file_id}_{reset_count}"
                         )
-                    with col3:
-                        temp_x_max = st.number_input(
+                    with c3:
+                        t_max = st.number_input(
                             "X-Axis Max",
                             value=int(result['distance_points']-1),
-                            min_value=int(temp_x_min + 1),
+                            min_value=int(t_min + 1),
                             max_value=int(result['distance_points']-1),
-                            key="temp_x_max",
-                            help="End distance index"
+                            key=f"tmax_{file_id}_{reset_count}"
                         )
                 
-                # Apply offset
-                temp_data_with_offset = result['temp_first'] + temp_offset
+                # Apply offset and filter
+                temp_data = result['temp_first'] + t_off
+                mask = (result['distance'] >= t_min) & (result['distance'] <= t_max)
                 
-                # Apply X-axis range filter
-                x_mask_temp = (result['distance'] >= temp_x_min) & (result['distance'] <= temp_x_max)
-                filtered_distance_temp = result['distance'][x_mask_temp]
-                filtered_temp = temp_data_with_offset[x_mask_temp]
-                
-                # Show applied settings
-                st.caption(f"📊 Showing: Distance {temp_x_min} to {temp_x_max} | Y-Offset: {temp_offset:+.2f}°C | Points: {len(filtered_temp)}")
+                # Show status
+                st.caption(f"📊 Range: {t_min} to {t_max} | Y-Offset: {t_off:+.2f}°C | Showing {int(mask.sum())} points")
                 
                 # Create and display plot
-                temp_fig = create_plotly_chart(
-                    filtered_distance_temp,
-                    filtered_temp,
-                    f"Temperature vs Distance (Offset: {temp_offset:+.2f}°C)",
+                fig_temp = create_plotly_chart(
+                    result['distance'][mask],
+                    temp_data[mask],
+                    f"Temperature - {filename} (Offset: {t_off:+.2f}°C)",
                     "Temperature (°C)",
-                    color='#e74c3c'
+                    '#e74c3c'
                 )
-                st.plotly_chart(temp_fig, use_container_width=True, key="temp_plot")
+                st.plotly_chart(fig_temp, use_container_width=True, key=f"tplot_{file_id}_{reset_count}")
                 
                 # ============================================
-                # STRAIN PLOT WITH CONTROLS
+                # STRAIN PLOT
                 # ============================================
-                st.markdown("### 📏 Strain Distribution")
+                st.markdown(f"#### 📏 Strain - {filename}")
                 
-                # Controls in expander for cleaner look
-                with st.expander("⚙️ Strain Controls", expanded=True):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        strain_offset = st.number_input(
+                # Reset button
+                if st.button(f"🔄 Reset Strain", key=f"rst_strain_{file_id}", type="secondary"):
+                    st.session_state[f'strain_reset_{file_id}'] += 1
+                    st.rerun()
+                
+                # Controls
+                with st.expander("⚙️ Strain Controls", expanded=False):
+                    c1, c2, c3 = st.columns(3)
+                    reset_count = st.session_state[f'strain_reset_{file_id}']
+                    
+                    with c1:
+                        s_off = st.number_input(
                             "Y-Axis Offset (µε)",
                             value=0.0,
                             step=1.0,
                             format="%.2f",
-                            key="strain_offset",
-                            help="Add/subtract offset (e.g., +10 or -5)"
+                            key=f"soff_{file_id}_{reset_count}",
+                            help="Positive = Add, Negative = Subtract"
                         )
-                    with col2:
-                        strain_x_min = st.number_input(
+                    with c2:
+                        s_min = st.number_input(
                             "X-Axis Min",
                             value=0,
                             min_value=0,
                             max_value=int(result['distance_points']-1),
-                            key="strain_x_min",
-                            help="Start distance index"
+                            key=f"smin_{file_id}_{reset_count}"
                         )
-                    with col3:
-                        strain_x_max = st.number_input(
+                    with c3:
+                        s_max = st.number_input(
                             "X-Axis Max",
                             value=int(result['distance_points']-1),
-                            min_value=int(strain_x_min + 1),
+                            min_value=int(s_min + 1),
                             max_value=int(result['distance_points']-1),
-                            key="strain_x_max",
-                            help="End distance index"
+                            key=f"smax_{file_id}_{reset_count}"
                         )
                 
-                # Apply offset
-                strain_data_with_offset = result['strain_first'] + strain_offset
+                # Apply offset and filter
+                strain_data = result['strain_first'] + s_off
+                mask = (result['distance'] >= s_min) & (result['distance'] <= s_max)
                 
-                # Apply X-axis range filter
-                x_mask_strain = (result['distance'] >= strain_x_min) & (result['distance'] <= strain_x_max)
-                filtered_distance_strain = result['distance'][x_mask_strain]
-                filtered_strain = strain_data_with_offset[x_mask_strain]
-                
-                # Show applied settings
-                st.caption(f"📊 Showing: Distance {strain_x_min} to {strain_x_max} | Y-Offset: {strain_offset:+.2f}µε | Points: {len(filtered_strain)}")
+                # Show status
+                st.caption(f"📊 Range: {s_min} to {s_max} | Y-Offset: {s_off:+.2f}µε | Showing {int(mask.sum())} points")
                 
                 # Create and display plot
-                strain_fig = create_plotly_chart(
-                    filtered_distance_strain,
-                    filtered_strain,
-                    f"Strain vs Distance (Offset: {strain_offset:+.2f}µε)",
+                fig_strain = create_plotly_chart(
+                    result['distance'][mask],
+                    strain_data[mask],
+                    f"Strain - {filename} (Offset: {s_off:+.2f}µε)",
                     "Strain (µε)",
-                    color='#3498db'
+                    '#3498db'
                 )
-                st.plotly_chart(strain_fig, use_container_width=True, key="strain_plot")
+                st.plotly_chart(fig_strain, use_container_width=True, key=f"splot_{file_id}_{reset_count}")
             
             else:  # BrillFrequency
                 # ============================================
-                # FREQUENCY PLOT WITH CONTROLS
+                # FREQUENCY PLOT
                 # ============================================
-                st.markdown("### 📊 Brillouin Frequency Distribution")
+                st.markdown(f"#### 📊 Frequency - {filename}")
                 
-                # Controls in expander for cleaner look
-                with st.expander("⚙️ Frequency Controls", expanded=True):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        freq_offset = st.number_input(
+                # Reset button
+                if st.button(f"🔄 Reset Frequency", key=f"rst_freq_{file_id}", type="secondary"):
+                    st.session_state[f'freq_reset_{file_id}'] += 1
+                    st.rerun()
+                
+                # Controls
+                with st.expander("⚙️ Frequency Controls", expanded=False):
+                    c1, c2, c3 = st.columns(3)
+                    reset_count = st.session_state[f'freq_reset_{file_id}']
+                    
+                    with c1:
+                        f_off = st.number_input(
                             "Y-Axis Offset (GHz)",
                             value=0.0,
                             step=0.01,
                             format="%.3f",
-                            key="freq_offset",
-                            help="Add/subtract offset (e.g., +0.05 or -0.02)"
+                            key=f"foff_{file_id}_{reset_count}",
+                            help="Positive = Add, Negative = Subtract"
                         )
-                    with col2:
-                        freq_x_min = st.number_input(
+                    with c2:
+                        f_min = st.number_input(
                             "X-Axis Min",
                             value=0,
                             min_value=0,
                             max_value=int(result['distance_points']-1),
-                            key="freq_x_min",
-                            help="Start distance index"
+                            key=f"fmin_{file_id}_{reset_count}"
                         )
-                    with col3:
-                        freq_x_max = st.number_input(
+                    with c3:
+                        f_max = st.number_input(
                             "X-Axis Max",
                             value=int(result['distance_points']-1),
-                            min_value=int(freq_x_min + 1),
+                            min_value=int(f_min + 1),
                             max_value=int(result['distance_points']-1),
-                            key="freq_x_max",
-                            help="End distance index"
+                            key=f"fmax_{file_id}_{reset_count}"
                         )
                 
-                # Apply offset
-                freq_data_with_offset = result['freq_first'] + freq_offset
+                # Apply offset and filter
+                freq_data = result['freq_first'] + f_off
+                mask = (result['distance'] >= f_min) & (result['distance'] <= f_max)
                 
-                # Apply X-axis range filter
-                x_mask_freq = (result['distance'] >= freq_x_min) & (result['distance'] <= freq_x_max)
-                filtered_distance_freq = result['distance'][x_mask_freq]
-                filtered_freq = freq_data_with_offset[x_mask_freq]
-                
-                # Show applied settings
-                st.caption(f"📊 Showing: Distance {freq_x_min} to {freq_x_max} | Y-Offset: {freq_offset:+.3f}GHz | Points: {len(filtered_freq)}")
+                # Show status
+                st.caption(f"📊 Range: {f_min} to {f_max} | Y-Offset: {f_off:+.3f}GHz | Showing {int(mask.sum())} points")
                 
                 # Create and display plot
-                freq_fig = create_plotly_chart(
-                    filtered_distance_freq,
-                    filtered_freq,
-                    f"Frequency vs Distance (Offset: {freq_offset:+.3f}GHz)",
+                fig_freq = create_plotly_chart(
+                    result['distance'][mask],
+                    freq_data[mask],
+                    f"Frequency - {filename} (Offset: {f_off:+.3f}GHz)",
                     "Frequency (GHz)",
-                    color='#9b59b6'
+                    '#9b59b6'
                 )
-                st.plotly_chart(freq_fig, use_container_width=True, key="freq_plot")
+                st.plotly_chart(fig_freq, use_container_width=True, key=f"fplot_{file_id}_{reset_count}")
                 
                 # ============================================
-                # AMPLITUDE PLOT WITH CONTROLS
+                # AMPLITUDE PLOT
                 # ============================================
-                st.markdown("### 📈 Brillouin Amplitude Distribution")
+                st.markdown(f"#### 📈 Amplitude - {filename}")
                 
-                # Controls in expander for cleaner look
-                with st.expander("⚙️ Amplitude Controls", expanded=True):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        amp_offset = st.number_input(
+                # Reset button
+                if st.button(f"🔄 Reset Amplitude", key=f"rst_amp_{file_id}", type="secondary"):
+                    st.session_state[f'amp_reset_{file_id}'] += 1
+                    st.rerun()
+                
+                # Controls
+                with st.expander("⚙️ Amplitude Controls", expanded=False):
+                    c1, c2, c3 = st.columns(3)
+                    reset_count = st.session_state[f'amp_reset_{file_id}']
+                    
+                    with c1:
+                        a_off = st.number_input(
                             "Y-Axis Offset",
                             value=0.0,
                             step=0.01,
                             format="%.3f",
-                            key="amp_offset",
-                            help="Add/subtract offset (e.g., +0.1 or -0.05)"
+                            key=f"aoff_{file_id}_{reset_count}",
+                            help="Positive = Add, Negative = Subtract"
                         )
-                    with col2:
-                        amp_x_min = st.number_input(
+                    with c2:
+                        a_min = st.number_input(
                             "X-Axis Min",
                             value=0,
                             min_value=0,
                             max_value=int(result['distance_points']-1),
-                            key="amp_x_min",
-                            help="Start distance index"
+                            key=f"amin_{file_id}_{reset_count}"
                         )
-                    with col3:
-                        amp_x_max = st.number_input(
+                    with c3:
+                        a_max = st.number_input(
                             "X-Axis Max",
                             value=int(result['distance_points']-1),
-                            min_value=int(amp_x_min + 1),
+                            min_value=int(a_min + 1),
                             max_value=int(result['distance_points']-1),
-                            key="amp_x_max",
-                            help="End distance index"
+                            key=f"amax_{file_id}_{reset_count}"
                         )
                 
-                # Apply offset
-                amp_data_with_offset = result['amp_first'] + amp_offset
+                # Apply offset and filter
+                amp_data = result['amp_first'] + a_off
+                mask = (result['distance'] >= a_min) & (result['distance'] <= a_max)
                 
-                # Apply X-axis range filter
-                x_mask_amp = (result['distance'] >= amp_x_min) & (result['distance'] <= amp_x_max)
-                filtered_distance_amp = result['distance'][x_mask_amp]
-                filtered_amp = amp_data_with_offset[x_mask_amp]
-                
-                # Show applied settings
-                st.caption(f"📊 Showing: Distance {amp_x_min} to {amp_x_max} | Y-Offset: {amp_offset:+.3f} | Points: {len(filtered_amp)}")
+                # Show status
+                st.caption(f"📊 Range: {a_min} to {a_max} | Y-Offset: {a_off:+.3f} | Showing {int(mask.sum())} points")
                 
                 # Create and display plot
-                amp_fig = create_plotly_chart(
-                    filtered_distance_amp,
-                    filtered_amp,
-                    f"Amplitude vs Distance (Offset: {amp_offset:+.3f})",
+                fig_amp = create_plotly_chart(
+                    result['distance'][mask],
+                    amp_data[mask],
+                    f"Amplitude - {filename} (Offset: {a_off:+.3f})",
                     "Amplitude (a.u.)",
-                    color='#16a085'
+                    '#16a085'
                 )
-                st.plotly_chart(amp_fig, use_container_width=True, key="amp_plot")
-            
-            st.divider()
-            
-            # Action buttons
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if st.button("📥 Download PDF Report", use_container_width=True):
-                    pdf_bytes = generate_pdf_report(
-                        result,
-                        st.session_state.single_filename,
-                        'single'
-                    )
-                    st.download_button(
-                        label="💾 Save PDF",
-                        data=pdf_bytes,
-                        file_name=f"DFOS_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-            
-            with col2:
-                if st.button("📊 Export Data (CSV)", use_container_width=True):
-                    # Create DataFrame based on file type
-                    if result['file_type'] == 'TempStrain':
-                        df = pd.DataFrame({
-                            'Distance_Index': result['distance'],
-                            'Temperature_C': result['temp_first'],
-                            'Strain_uE': result['strain_first']
-                        })
-                    else:  # BrillFrequency
-                        df = pd.DataFrame({
-                            'Distance_Index': result['distance'],
-                            'Frequency_GHz': result['freq_first'],
-                            'Amplitude': result['amp_first']
-                        })
-                    
-                    csv = df.to_csv(index=False)
-                    st.download_button(
-                        label="💾 Save CSV",
-                        data=csv,
-                        file_name=f"DFOS_Data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-            
-            with col3:
-                if st.button("🔄 Reset", use_container_width=True):
-                    del st.session_state.single_result
-                    del st.session_state.single_filename
-                    st.rerun()
+                st.plotly_chart(fig_amp, use_container_width=True, key=f"aplot_{file_id}_{reset_count}")
+    
+    else:
+        st.info("👆 Upload and process files to see analysis results")
 
 # ============================================
-# COMPARISON ANALYSIS (TWO FILES)
+# COMPARISON ANALYSIS (KEPT AS IS)
 # ============================================
 
 def show_comparison_analysis():
     """Compare two files side by side"""
     
-    st.subheader("⚖️ Compare Two Files")
-    st.markdown("Upload two BTS files for comparative analysis")
+    st.markdown("## ⚖️ Compare Two Files")
+    st.info("Upload two files for comparative analysis")
     
     # File uploads
     col1, col2 = st.columns(2)
@@ -552,133 +633,165 @@ def show_comparison_analysis():
                     st.session_state.compare_result2 = result2
                     st.session_state.compare_file1_name = file1.name
                     st.session_state.compare_file2_name = file2.name
-                    st.success("✅ Both files processed successfully!")
-                    
-                    # Add to history
-                    if 'processing_history' not in st.session_state:
-                        st.session_state.processing_history = []
-                    
-                    st.session_state.processing_history.append({
-                        'Timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'Filename': f"{file1.name} vs {file2.name}",
-                        'Type': 'Comparison',
-                        'Distance Points': f"{result1['distance_points']} / {result2['distance_points']}",
-                        'Status': 'Success'
-                    })
+                    st.success("✅ Files processed successfully!")
                 else:
-                    error_msg = result1.get('error', '') or result2.get('error', '')
-                    st.error(f"❌ Error: {error_msg}")
+                    if not result1['success']:
+                        st.error(f"❌ File 1 error: {result1['error']}")
+                    if not result2['success']:
+                        st.error(f"❌ File 2 error: {result2['error']}")
         
         # Display comparison results
-        if 'compare_result1' in st.session_state:
+        if 'compare_result1' in st.session_state and 'compare_result2' in st.session_state:
             result1 = st.session_state.compare_result1
             result2 = st.session_state.compare_result2
+            fname1 = st.session_state.compare_file1_name
+            fname2 = st.session_state.compare_file2_name
             
             st.divider()
             
-            # Comparison metrics
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f"#### 📊 {st.session_state.compare_file1_name}")
-                st.metric("Distance Points", result1['distance_points'])
-            with col2:
-                st.markdown(f"#### 📊 {st.session_state.compare_file2_name}")
-                st.metric("Distance Points", result2['distance_points'])
+            # Check if both are same type
+            if result1['file_type'] != result2['file_type']:
+                st.warning("⚠️ Files are different types! Comparison may not be meaningful.")
             
-            st.divider()
-            
-            # Temperature Comparison
-            st.markdown("### 🌡️ Temperature Comparison")
-            fig_temp = go.Figure()
-            fig_temp.add_trace(go.Scatter(
-                x=result1['distance'],
-                y=result1['temp_first'],
-                mode='lines',
-                name='File 1',
-                line=dict(color='#e74c3c', width=2)
-            ))
-            fig_temp.add_trace(go.Scatter(
-                x=result2['distance'],
-                y=result2['temp_first'],
-                mode='lines',
-                name='File 2',
-                line=dict(color='#f39c12', width=2, dash='dash')
-            ))
-            fig_temp.update_layout(
-                title="Temperature Comparison",
-                xaxis_title="Distance Index",
-                yaxis_title="Temperature (°C)",
-                template='plotly_white',
-                height=500
-            )
-            st.plotly_chart(fig_temp, use_container_width=True)
-            
-            # Strain Comparison
-            st.markdown("### 📏 Strain Comparison")
-            fig_strain = go.Figure()
-            fig_strain.add_trace(go.Scatter(
-                x=result1['distance'],
-                y=result1['strain_first'],
-                mode='lines',
-                name='File 1',
-                line=dict(color='#3498db', width=2)
-            ))
-            fig_strain.add_trace(go.Scatter(
-                x=result2['distance'],
-                y=result2['strain_first'],
-                mode='lines',
-                name='File 2',
-                line=dict(color='#9b59b6', width=2, dash='dash')
-            ))
-            fig_strain.update_layout(
-                title="Strain Comparison",
-                xaxis_title="Distance Index",
-                yaxis_title="Strain (µε)",
-                template='plotly_white',
-                height=500
-            )
-            st.plotly_chart(fig_strain, use_container_width=True)
-            
-            # Difference Analysis
-            st.divider()
-            st.markdown("### 📊 Difference Analysis")
-            
-            if result1['distance_points'] == result2['distance_points']:
-                temp_diff = result2['temp_first'] - result1['temp_first']
-                strain_diff = result2['strain_first'] - result1['strain_first']
+            # Comparison plots
+            if result1['file_type'] == 'TempStrain' and result2['file_type'] == 'TempStrain':
                 
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Max Temp Difference", f"{np.max(np.abs(temp_diff)):.2f} °C")
-                    st.metric("Mean Temp Difference", f"{np.mean(temp_diff):.2f} °C")
-                with col2:
-                    st.metric("Max Strain Difference", f"{np.max(np.abs(strain_diff)):.2f} µε")
-                    st.metric("Mean Strain Difference", f"{np.mean(strain_diff):.2f} µε")
-            else:
-                st.warning("⚠️ Files have different distance points. Difference analysis requires matching dimensions.")
+                # Temperature comparison
+                st.markdown("### 🌡️ Temperature Comparison")
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=result1['distance'],
+                    y=result1['temp_first'],
+                    mode='lines',
+                    name=fname1,
+                    line=dict(color='#e74c3c', width=2)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=result2['distance'],
+                    y=result2['temp_first'],
+                    mode='lines',
+                    name=fname2,
+                    line=dict(color='#f39c12', width=2, dash='dash')
+                ))
+                fig.update_layout(
+                    title="Temperature Comparison",
+                    xaxis_title="Distance Index",
+                    yaxis_title="Temperature (°C)",
+                    template='plotly_white',
+                    height=500
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Strain comparison
+                st.markdown("### 📏 Strain Comparison")
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=result1['distance'],
+                    y=result1['strain_first'],
+                    mode='lines',
+                    name=fname1,
+                    line=dict(color='#3498db', width=2)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=result2['distance'],
+                    y=result2['strain_first'],
+                    mode='lines',
+                    name=fname2,
+                    line=dict(color='#9b59b6', width=2, dash='dash')
+                ))
+                fig.update_layout(
+                    title="Strain Comparison",
+                    xaxis_title="Distance Index",
+                    yaxis_title="Strain (µε)",
+                    template='plotly_white',
+                    height=500
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Difference plot (if same dimensions)
+                if result1['distance_points'] == result2['distance_points']:
+                    st.markdown("### 📊 Difference Analysis")
+                    
+                    temp_diff = result2['temp_first'] - result1['temp_first']
+                    strain_diff = result2['strain_first'] - result1['strain_first']
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("#### Temperature Difference")
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=result1['distance'],
+                            y=temp_diff,
+                            mode='lines',
+                            line=dict(color='#16a085', width=2),
+                            fill='tozeroy'
+                        ))
+                        fig.update_layout(
+                            title="Δ Temperature (File2 - File1)",
+                            xaxis_title="Distance Index",
+                            yaxis_title="ΔT (°C)",
+                            template='plotly_white',
+                            height=400
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    with col2:
+                        st.markdown("#### Strain Difference")
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=result1['distance'],
+                            y=strain_diff,
+                            mode='lines',
+                            line=dict(color='#e67e22', width=2),
+                            fill='tozeroy'
+                        ))
+                        fig.update_layout(
+                            title="Δ Strain (File2 - File1)",
+                            xaxis_title="Distance Index",
+                            yaxis_title="Δε (µε)",
+                            template='plotly_white',
+                            height=400
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("⚠️ Files have different dimensions. Cannot calculate difference.")
             
+            # Export comparison
             st.divider()
-            
-            # Action buttons
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("📥 Download Comparison Report", use_container_width=True):
-                    pdf_bytes = generate_pdf_report(
-                        (result1, result2),
-                        (st.session_state.compare_file1_name, st.session_state.compare_file2_name),
-                        'comparison'
-                    )
-                    st.download_button(
-                        label="💾 Save PDF",
-                        data=pdf_bytes,
-                        file_name=f"DFOS_Comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-            
-            with col2:
-                if st.button("🔄 Reset Comparison", use_container_width=True):
-                    for key in ['compare_result1', 'compare_result2', 'compare_file1_name', 'compare_file2_name']:
-                        if key in st.session_state:
-                            del st.session_state[key]
-                    st.rerun()
+            if st.button("📥 Download Comparison PDF", use_container_width=True):
+                with st.spinner("Generating comparison report..."):
+                    try:
+                        pdf_bytes = generate_pdf_report(
+                            (result1, result2),
+                            (fname1, fname2),
+                            report_type='comparison'
+                        )
+                        st.download_button(
+                            "⬇️ Download PDF",
+                            pdf_bytes,
+                            f"comparison_{fname1}_{fname2}.pdf",
+                            "application/pdf",
+                            use_container_width=True
+                        )
+                    except Exception as e:
+                        st.error(f"PDF generation failed: {str(e)}")
+
+# ============================================
+# FILE HISTORY
+# ============================================
+
+def show_file_history():
+    """Display processing history"""
+    
+    st.markdown("## 📜 Processing History")
+    
+    if 'processing_history' in st.session_state and st.session_state.processing_history:
+        df = pd.DataFrame(st.session_state.processing_history)
+        st.dataframe(df, use_container_width=True)
+        
+        if st.button("🗑️ Clear History"):
+            st.session_state.processing_history = []
+            st.rerun()
+    else:
+        st.info("No processing history yet. Process some files to see history here.")

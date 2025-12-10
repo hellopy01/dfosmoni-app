@@ -40,7 +40,8 @@ def show_dashboard():
         
         page = st.radio(
             "Select View:",
-            ["File Analysis", "⚖️ Compare Two Files", "📁 File History", "⚙️ Settings"],
+            ["File Analysis", "📁 File History", "⚙️ Settings"],
+            # ["File Analysis", "⚖️ Compare Two Files", "📁 File History", "⚙️ Settings"],
             label_visibility="collapsed"
         )
         
@@ -75,8 +76,8 @@ def show_dashboard():
     if page == "File Analysis":
         show_single_file_analysis()
     
-    elif page == "⚖️ Compare Two Files":
-        show_comparison_analysis()
+    # elif page == "⚖️ Compare Two Files":
+    #     show_comparison_analysis()
     
     elif page == "📁 File History":
         show_file_history()

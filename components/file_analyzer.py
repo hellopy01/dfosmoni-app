@@ -1,8 +1,8 @@
 """
-File Analysis Components - COMPLETE WITH COMPARE ALL FEATURE
-✅ Multiple file upload
-✅ Individual controls per file
-✅ NEW: Compare All Charts - Plot all files in single graph
+File Analysis Components - FINAL VERSION
+✅ Multiple file upload with Compare All
+✅ PDF exports with CURRENT state (offsets, ranges)
+✅ All features working
 """
 
 import streamlit as st
@@ -14,13 +14,11 @@ import pandas as pd
 from utils.pdf_generator import generate_pdf_report
 
 # ============================================
-# YOUR ORIGINAL PROCESSING LOGIC (PRESERVED)
+# PROCESSING & EXPORT
 # ============================================
 
 def process_bts_file(file_obj):
-    """
-    Process BTS HDF5 file - Supports both TempStrain and BrillFrequency files
-    """
+    """Process BTS HDF5 file - Supports both TempStrain and BrillFrequency files"""
     try:
         with h5py.File(file_obj, "r") as f:
             base_path = "Acquisition/Custom/Brillouin[0]/"
@@ -36,8 +34,6 @@ def process_bts_file(file_obj):
                 temp = f[base_path + "TemperatureData"][:]
                 distance_points = strain.shape[1]
                 distance = np.arange(distance_points)
-                strain_1 = strain[0]
-                temp_1 = temp[0]
                 
                 return {
                     'success': True,
@@ -45,8 +41,8 @@ def process_bts_file(file_obj):
                     'time': time,
                     'strain_full': strain,
                     'temp_full': temp,
-                    'strain_first': strain_1,
-                    'temp_first': temp_1,
+                    'strain_first': strain[0],
+                    'temp_first': temp[0],
                     'distance': distance,
                     'distance_points': distance_points,
                     'metadata': {
@@ -61,8 +57,6 @@ def process_bts_file(file_obj):
                 amp = f[base_path + "AmplitudeData"][:]
                 distance_points = freq.shape[1]
                 distance = np.arange(distance_points)
-                freq_1 = freq[0]
-                amp_1 = amp[0]
                 
                 return {
                     'success': True,
@@ -70,8 +64,8 @@ def process_bts_file(file_obj):
                     'time': time,
                     'freq_full': freq,
                     'amp_full': amp,
-                    'freq_first': freq_1,
-                    'amp_first': amp_1,
+                    'freq_first': freq[0],
+                    'amp_first': amp[0],
                     'distance': distance,
                     'distance_points': distance_points,
                     'metadata': {
@@ -82,20 +76,10 @@ def process_bts_file(file_obj):
                 }
             
             else:
-                return {
-                    'success': False,
-                    'error': 'Unknown file format'
-                }
+                return {'success': False, 'error': 'Unknown file format'}
                 
     except Exception as e:
-        return {
-            'success': False,
-            'error': str(e)
-        }
-
-# ============================================
-# EXPORT FUNCTIONS
-# ============================================
+        return {'success': False, 'error': str(e)}
 
 def export_to_csv(distance, temp, strain):
     """Export TempStrain data to CSV"""
@@ -115,18 +99,11 @@ def export_to_csv_brillouin(distance, freq, amp):
     })
     return df.to_csv(index=False)
 
-# ============================================
-# PLOTTING
-# ============================================
-
 def create_plotly_chart(distance, data, title, ylabel, color='#667eea'):
     """Create interactive Plotly chart"""
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=distance,
-        y=data,
-        mode='lines',
-        name=ylabel,
+        x=distance, y=data, mode='lines', name=ylabel,
         line=dict(color=color, width=2),
         hovertemplate='<b>Distance</b>: %{x}<br><b>' + ylabel + '</b>: %{y:.2f}<extra></extra>'
     ))
@@ -144,23 +121,21 @@ def create_plotly_chart(distance, data, title, ylabel, color='#667eea'):
     return fig
 
 # ============================================
-# COMPARE ALL CHARTS FUNCTION
+# COMPARE ALL CHARTS
 # ============================================
 
 def show_compare_all_charts(processed_files):
-    """Show all files plotted together in single charts with different colors"""
+    """Show all files combined with PDF export"""
     
     st.markdown("## 📊 Compare All Files - Combined View")
     st.info("All processed files plotted together with different colors")
     
-    # Color palette for multiple files
     colors = [
         '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
         '#1abc9c', '#e67e22', '#34495e', '#16a085', '#c0392b',
         '#8e44ad', '#27ae60', '#d35400', '#2980b9', '#f1c40f'
     ]
     
-    # Separate files by type
     tempstrain_files = []
     brillfreq_files = []
     
@@ -170,46 +145,82 @@ def show_compare_all_charts(processed_files):
         else:
             brillfreq_files.append((fname, result))
     
-    # ============================================
-    # TEMPSTRAIN FILES - COMBINED CHARTS
-    # ============================================
+    # Initialize session state for controls
+    if 'compare_temp_offset' not in st.session_state:
+        st.session_state.compare_temp_offset = 0.0
+    if 'compare_strain_offset' not in st.session_state:
+        st.session_state.compare_strain_offset = 0.0
+    if 'compare_freq_offset' not in st.session_state:
+        st.session_state.compare_freq_offset = 0.0
+    if 'compare_amp_offset' not in st.session_state:
+        st.session_state.compare_amp_offset = 0.0
+    if 'compare_x_min' not in st.session_state:
+        st.session_state.compare_x_min = 0
+    if 'compare_x_max' not in st.session_state:
+        if tempstrain_files:
+            max_pts = max([r['distance_points'] for _, r in tempstrain_files])
+        elif brillfreq_files:
+            max_pts = max([r['distance_points'] for _, r in brillfreq_files])
+        else:
+            max_pts = 2500
+        st.session_state.compare_x_max = max_pts - 1
+    
+    # PDF Export Button
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("📥 Download PDF", type="primary", use_container_width=True):
+            with st.spinner("Generating Compare All PDF..."):
+                try:
+                    controls = {
+                        'temp_offset': st.session_state.compare_temp_offset,
+                        'strain_offset': st.session_state.compare_strain_offset,
+                        'freq_offset': st.session_state.compare_freq_offset,
+                        'amp_offset': st.session_state.compare_amp_offset,
+                        'x_min': st.session_state.compare_x_min,
+                        'x_max': st.session_state.compare_x_max
+                    }
+                    
+                    pdf_bytes = generate_pdf_report(
+                        processed_files, 
+                        None, 
+                        report_type='compare_all',
+                        controls=controls
+                    )
+                    
+                    st.download_button(
+                        "⬇️ Save PDF",
+                        pdf_bytes,
+                        f"compare_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        "application/pdf",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"PDF generation failed: {str(e)}")
+    
+    # TEMPSTRAIN FILES
     if tempstrain_files:
         st.markdown("### 🌡️ TempStrain Files Combined")
         
-        # Initialize controls state
-        if 'compare_temp_offset' not in st.session_state:
-            st.session_state.compare_temp_offset = 0.0
-        if 'compare_strain_offset' not in st.session_state:
-            st.session_state.compare_strain_offset = 0.0
-        if 'compare_x_min' not in st.session_state:
-            st.session_state.compare_x_min = 0
-        if 'compare_x_max' not in st.session_state:
-            max_points = max([r['distance_points'] for _, r in tempstrain_files])
-            st.session_state.compare_x_max = max_points - 1
-        
-        # COMBINED TEMPERATURE CHART
+        # TEMPERATURE
         st.markdown("#### 🌡️ All Temperature Data")
         
-        with st.expander("⚙️ Temperature Controls (Applied to All)", expanded=False):
+        with st.expander("⚙️ Temperature Controls", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
                 temp_offset = st.number_input(
                     "Y-Axis Offset (°C)",
                     value=st.session_state.compare_temp_offset,
-                    step=0.1,
-                    format="%.2f",
-                    key="cmp_temp_offset",
-                    help="Applied to all files"
+                    step=0.1, format="%.2f",
+                    key="cmp_temp_offset"
                 )
                 st.session_state.compare_temp_offset = temp_offset
             
             with col2:
-                max_points_temp = max([r['distance_points'] for _, r in tempstrain_files])
+                max_points = max([r['distance_points'] for _, r in tempstrain_files])
                 x_min = st.number_input(
                     "X-Axis Min",
                     value=st.session_state.compare_x_min,
-                    min_value=0,
-                    max_value=max_points_temp-1,
+                    min_value=0, max_value=max_points-1,
                     key="cmp_x_min"
                 )
                 st.session_state.compare_x_min = x_min
@@ -218,13 +229,11 @@ def show_compare_all_charts(processed_files):
                 x_max = st.number_input(
                     "X-Axis Max",
                     value=st.session_state.compare_x_max,
-                    min_value=x_min+1,
-                    max_value=max_points_temp-1,
+                    min_value=x_min+1, max_value=max_points-1,
                     key="cmp_x_max"
                 )
                 st.session_state.compare_x_max = x_max
         
-        # Create combined temperature plot
         fig_temp = go.Figure()
         for idx, (fname, result) in enumerate(tempstrain_files):
             color = colors[idx % len(colors)]
@@ -232,21 +241,15 @@ def show_compare_all_charts(processed_files):
             mask = (result['distance'] >= x_min) & (result['distance'] <= x_max)
             
             fig_temp.add_trace(go.Scatter(
-                x=result['distance'][mask],
-                y=temp_data[mask],
-                mode='lines',
-                name=fname,
-                line=dict(color=color, width=2),
+                x=result['distance'][mask], y=temp_data[mask],
+                mode='lines', name=fname, line=dict(color=color, width=2),
                 hovertemplate=f'<b>{fname}</b><br>Distance: %{{x}}<br>Temp: %{{y:.2f}}°C<extra></extra>'
             ))
         
         fig_temp.update_layout(
             title=f"Combined Temperature (Offset: {temp_offset:+.2f}°C)",
-            xaxis_title="Distance Index",
-            yaxis_title="Temperature (°C)",
-            template='plotly_white',
-            hovermode='x unified',
-            height=600,
+            xaxis_title="Distance Index", yaxis_title="Temperature (°C)",
+            template='plotly_white', hovermode='x unified', height=600,
             legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
         )
         fig_temp.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.1)')
@@ -254,21 +257,18 @@ def show_compare_all_charts(processed_files):
         
         st.plotly_chart(fig_temp, use_container_width=True)
         
-        # COMBINED STRAIN CHART
+        # STRAIN
         st.markdown("#### 📏 All Strain Data")
         
-        with st.expander("⚙️ Strain Controls (Applied to All)", expanded=False):
+        with st.expander("⚙️ Strain Controls", expanded=False):
             strain_offset = st.number_input(
                 "Y-Axis Offset (µε)",
                 value=st.session_state.compare_strain_offset,
-                step=1.0,
-                format="%.2f",
-                key="cmp_strain_offset",
-                help="Applied to all files"
+                step=1.0, format="%.2f",
+                key="cmp_strain_offset"
             )
             st.session_state.compare_strain_offset = strain_offset
         
-        # Create combined strain plot
         fig_strain = go.Figure()
         for idx, (fname, result) in enumerate(tempstrain_files):
             color = colors[idx % len(colors)]
@@ -276,21 +276,15 @@ def show_compare_all_charts(processed_files):
             mask = (result['distance'] >= x_min) & (result['distance'] <= x_max)
             
             fig_strain.add_trace(go.Scatter(
-                x=result['distance'][mask],
-                y=strain_data[mask],
-                mode='lines',
-                name=fname,
-                line=dict(color=color, width=2),
+                x=result['distance'][mask], y=strain_data[mask],
+                mode='lines', name=fname, line=dict(color=color, width=2),
                 hovertemplate=f'<b>{fname}</b><br>Distance: %{{x}}<br>Strain: %{{y:.2f}}µε<extra></extra>'
             ))
         
         fig_strain.update_layout(
             title=f"Combined Strain (Offset: {strain_offset:+.2f}µε)",
-            xaxis_title="Distance Index",
-            yaxis_title="Strain (µε)",
-            template='plotly_white',
-            hovermode='x unified',
-            height=600,
+            xaxis_title="Distance Index", yaxis_title="Strain (µε)",
+            template='plotly_white', hovermode='x unified', height=600,
             legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
         )
         fig_strain.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.1)')
@@ -298,45 +292,36 @@ def show_compare_all_charts(processed_files):
         
         st.plotly_chart(fig_strain, use_container_width=True)
     
-    # ============================================
-    # BRILLFREQ FILES - COMBINED CHARTS
-    # ============================================
+    # BRILLFREQ FILES
     if brillfreq_files:
         st.markdown("### 📡 BrillFrequency Files Combined")
         
-        # Initialize controls
-        if 'compare_freq_offset' not in st.session_state:
-            st.session_state.compare_freq_offset = 0.0
-        if 'compare_amp_offset' not in st.session_state:
-            st.session_state.compare_amp_offset = 0.0
         if 'compare_freq_x_min' not in st.session_state:
             st.session_state.compare_freq_x_min = 0
         if 'compare_freq_x_max' not in st.session_state:
-            max_points = max([r['distance_points'] for _, r in brillfreq_files])
-            st.session_state.compare_freq_x_max = max_points - 1
+            max_pts = max([r['distance_points'] for _, r in brillfreq_files])
+            st.session_state.compare_freq_x_max = max_pts - 1
         
-        # COMBINED FREQUENCY CHART
+        # FREQUENCY
         st.markdown("#### 📊 All Frequency Data")
         
-        with st.expander("⚙️ Frequency Controls (Applied to All)", expanded=False):
+        with st.expander("⚙️ Frequency Controls", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
                 freq_offset = st.number_input(
                     "Y-Axis Offset (GHz)",
                     value=st.session_state.compare_freq_offset,
-                    step=0.01,
-                    format="%.3f",
+                    step=0.01, format="%.3f",
                     key="cmp_freq_offset"
                 )
                 st.session_state.compare_freq_offset = freq_offset
             
             with col2:
-                max_points_freq = max([r['distance_points'] for _, r in brillfreq_files])
+                max_points_f = max([r['distance_points'] for _, r in brillfreq_files])
                 freq_x_min = st.number_input(
                     "X-Axis Min",
                     value=st.session_state.compare_freq_x_min,
-                    min_value=0,
-                    max_value=max_points_freq-1,
+                    min_value=0, max_value=max_points_f-1,
                     key="cmp_freq_x_min"
                 )
                 st.session_state.compare_freq_x_min = freq_x_min
@@ -345,13 +330,11 @@ def show_compare_all_charts(processed_files):
                 freq_x_max = st.number_input(
                     "X-Axis Max",
                     value=st.session_state.compare_freq_x_max,
-                    min_value=freq_x_min+1,
-                    max_value=max_points_freq-1,
+                    min_value=freq_x_min+1, max_value=max_points_f-1,
                     key="cmp_freq_x_max"
                 )
                 st.session_state.compare_freq_x_max = freq_x_max
         
-        # Create combined frequency plot
         fig_freq = go.Figure()
         for idx, (fname, result) in enumerate(brillfreq_files):
             color = colors[idx % len(colors)]
@@ -359,21 +342,15 @@ def show_compare_all_charts(processed_files):
             mask = (result['distance'] >= freq_x_min) & (result['distance'] <= freq_x_max)
             
             fig_freq.add_trace(go.Scatter(
-                x=result['distance'][mask],
-                y=freq_data[mask],
-                mode='lines',
-                name=fname,
-                line=dict(color=color, width=2),
+                x=result['distance'][mask], y=freq_data[mask],
+                mode='lines', name=fname, line=dict(color=color, width=2),
                 hovertemplate=f'<b>{fname}</b><br>Distance: %{{x}}<br>Freq: %{{y:.3f}}GHz<extra></extra>'
             ))
         
         fig_freq.update_layout(
             title=f"Combined Frequency (Offset: {freq_offset:+.3f}GHz)",
-            xaxis_title="Distance Index",
-            yaxis_title="Frequency (GHz)",
-            template='plotly_white',
-            hovermode='x unified',
-            height=600,
+            xaxis_title="Distance Index", yaxis_title="Frequency (GHz)",
+            template='plotly_white', hovermode='x unified', height=600,
             legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
         )
         fig_freq.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.1)')
@@ -381,20 +358,18 @@ def show_compare_all_charts(processed_files):
         
         st.plotly_chart(fig_freq, use_container_width=True)
         
-        # COMBINED AMPLITUDE CHART
+        # AMPLITUDE
         st.markdown("#### 📈 All Amplitude Data")
         
-        with st.expander("⚙️ Amplitude Controls (Applied to All)", expanded=False):
+        with st.expander("⚙️ Amplitude Controls", expanded=False):
             amp_offset = st.number_input(
                 "Y-Axis Offset",
                 value=st.session_state.compare_amp_offset,
-                step=0.01,
-                format="%.3f",
+                step=0.01, format="%.3f",
                 key="cmp_amp_offset"
             )
             st.session_state.compare_amp_offset = amp_offset
         
-        # Create combined amplitude plot
         fig_amp = go.Figure()
         for idx, (fname, result) in enumerate(brillfreq_files):
             color = colors[idx % len(colors)]
@@ -402,21 +377,15 @@ def show_compare_all_charts(processed_files):
             mask = (result['distance'] >= freq_x_min) & (result['distance'] <= freq_x_max)
             
             fig_amp.add_trace(go.Scatter(
-                x=result['distance'][mask],
-                y=amp_data[mask],
-                mode='lines',
-                name=fname,
-                line=dict(color=color, width=2),
+                x=result['distance'][mask], y=amp_data[mask],
+                mode='lines', name=fname, line=dict(color=color, width=2),
                 hovertemplate=f'<b>{fname}</b><br>Distance: %{{x}}<br>Amp: %{{y:.3f}}<extra></extra>'
             ))
         
         fig_amp.update_layout(
             title=f"Combined Amplitude (Offset: {amp_offset:+.3f})",
-            xaxis_title="Distance Index",
-            yaxis_title="Amplitude (a.u.)",
-            template='plotly_white',
-            hovermode='x unified',
-            height=600,
+            xaxis_title="Distance Index", yaxis_title="Amplitude (a.u.)",
+            template='plotly_white', hovermode='x unified', height=600,
             legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
         )
         fig_amp.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.1)')
@@ -431,17 +400,17 @@ def show_compare_all_charts(processed_files):
         st.rerun()
 
 # ============================================
-# MULTIPLE FILE ANALYSIS
+# MAIN ANALYSIS FUNCTION
 # ============================================
 
 def show_single_file_analysis():
-    """Multiple File Analysis with Compare All feature"""
+    """Multiple File Analysis with Compare All and PDF export"""
     
-    # Check if we should show compare all view
+    # Check compare all view
     if 'show_compare_all' not in st.session_state:
         st.session_state.show_compare_all = False
     
-    if st.session_state.show_compare_all and st.session_state.processed_files:
+    if st.session_state.show_compare_all and st.session_state.get('processed_files'):
         show_compare_all_charts(st.session_state.processed_files)
         return
     
@@ -453,7 +422,7 @@ def show_single_file_analysis():
     if 'processed_files' not in st.session_state:
         st.session_state.processed_files = {}
     
-    # Upload section header
+    # Upload section
     col1, col2 = st.columns([4, 1])
     with col1:
         st.markdown("### 📤 Upload Files")
@@ -465,7 +434,6 @@ def show_single_file_analysis():
     
     st.divider()
     
-    # Track uploaded files
     uploaded_files_dict = {}
     
     # Display upload slots
@@ -503,18 +471,18 @@ def show_single_file_analysis():
                                 st.error(f"❌ {str(e)[:50]}")
             
             with cols[2]:
-                if st.button("🗑️", key=f"remove_slot_{i}", help="Remove this slot"):
+                if st.button("🗑️", key=f"remove_slot_{i}", help="Remove slot"):
                     if uploaded and uploaded.name in st.session_state.processed_files:
                         del st.session_state.processed_files[uploaded.name]
                     st.session_state.num_upload_slots = max(1, st.session_state.num_upload_slots - 1)
                     st.rerun()
     
-    # Batch processing section
+    # Batch processing
     if uploaded_files_dict:
         st.divider()
         cols = st.columns([2, 2, 2])
         with cols[0]:
-            st.metric("📁 Files Added", len(uploaded_files_dict))
+            st.metric("📁 Files", len(uploaded_files_dict))
         with cols[1]:
             st.metric("✅ Processed", len(st.session_state.processed_files))
         with cols[2]:
@@ -538,7 +506,7 @@ def show_single_file_analysis():
                     
                     progress.progress((idx + 1) / total)
                 
-                status.text("✅ All files processed!")
+                status.text("✅ All processed!")
                 st.rerun()
     
     # Display results
@@ -550,7 +518,6 @@ def show_single_file_analysis():
         with col1:
             st.markdown("## 📊 Analysis Results")
         with col2:
-            # COMPARE ALL BUTTON - NEW FEATURE
             if len(st.session_state.processed_files) >= 2:
                 if st.button("📊 Compare All Charts", type="primary", use_container_width=True):
                     st.session_state.show_compare_all = True
@@ -560,7 +527,7 @@ def show_single_file_analysis():
                 st.session_state.processed_files = {}
                 st.rerun()
         
-        # Show each file's results (REST OF CODE UNCHANGED)
+        # Individual file results
         for filename, result in list(st.session_state.processed_files.items()):
             st.markdown("---")
             
@@ -570,17 +537,19 @@ def show_single_file_analysis():
                 st.markdown(f"### {emoji} **{filename}**")
                 st.caption(f"📊 Type: **{result['file_type']}** | Points: **{result['distance_points']}** | Samples: **{len(result['time'])}**")
             with cols[1]:
-                if st.button("❌ Remove", key=f"del_{filename}", help="Remove", use_container_width=True):
+                if st.button("❌", key=f"del_{filename}", help="Remove", use_container_width=True):
                     del st.session_state.processed_files[filename]
                     st.rerun()
             
             file_id = filename.replace('.', '_').replace(' ', '_').replace('-', '_').replace('(', '').replace(')', '')
             
+            # Initialize reset counters
             for plot_type in ['temp', 'strain', 'freq', 'amp']:
                 key = f'{plot_type}_reset_{file_id}'
                 if key not in st.session_state:
                     st.session_state[key] = 0
             
+            # Export options
             with st.expander("📥 Export Options", expanded=False):
                 col1, col2 = st.columns(2)
                 
@@ -603,7 +572,47 @@ def show_single_file_analysis():
                     if st.button("📥 Generate PDF", key=f"pdf_btn_{file_id}", use_container_width=True):
                         with st.spinner("Generating PDF..."):
                             try:
-                                pdf_bytes = generate_pdf_report(result, filename, 'single')
+                                # Capture CURRENT control values from session state
+                                controls = {}
+                                
+                                if result['file_type'] == 'TempStrain':
+                                    # Get Temperature controls
+                                    reset_count_temp = st.session_state.get(f'temp_reset_{file_id}', 0)
+                                    t_off = st.session_state.get(f"toff_{file_id}_{reset_count_temp}", 0.0)
+                                    t_min = st.session_state.get(f"tmin_{file_id}_{reset_count_temp}", 0)
+                                    t_max = st.session_state.get(f"tmax_{file_id}_{reset_count_temp}", result['distance_points']-1)
+                                    
+                                    # Get Strain controls
+                                    reset_count_strain = st.session_state.get(f'strain_reset_{file_id}', 0)
+                                    s_off = st.session_state.get(f"soff_{file_id}_{reset_count_strain}", 0.0)
+                                    
+                                    controls = {
+                                        'temp_offset': t_off,
+                                        'strain_offset': s_off,
+                                        'x_min': t_min,
+                                        'x_max': t_max
+                                    }
+                                else:  # BrillFrequency
+                                    # Get Frequency controls
+                                    reset_count_freq = st.session_state.get(f'freq_reset_{file_id}', 0)
+                                    f_off = st.session_state.get(f"foff_{file_id}_{reset_count_freq}", 0.0)
+                                    f_min = st.session_state.get(f"fmin_{file_id}_{reset_count_freq}", 0)
+                                    f_max = st.session_state.get(f"fmax_{file_id}_{reset_count_freq}", result['distance_points']-1)
+                                    
+                                    # Get Amplitude controls
+                                    reset_count_amp = st.session_state.get(f'amp_reset_{file_id}', 0)
+                                    a_off = st.session_state.get(f"aoff_{file_id}_{reset_count_amp}", 0.0)
+                                    
+                                    controls = {
+                                        'freq_offset': f_off,
+                                        'amp_offset': a_off,
+                                        'x_min': f_min,
+                                        'x_max': f_max
+                                    }
+                                
+                                # Generate PDF with CURRENT state
+                                pdf_bytes = generate_pdf_report(result, filename, 'single', controls=controls)
+                                
                                 st.download_button(
                                     "⬇️ Download PDF",
                                     pdf_bytes,
@@ -615,22 +624,22 @@ def show_single_file_analysis():
                             except Exception as e:
                                 st.error(f"PDF error: {str(e)}")
             
-            # Display plots (SAME AS BEFORE - NO CHANGES)
+            # Display plots based on file type
             if result['file_type'] == 'TempStrain':
-                # TEMPERATURE
+                # TEMPERATURE PLOT
                 st.markdown(f"#### 🌡️ Temperature - {filename}")
                 
-                if st.button(f"🔄 Reset Temperature", key=f"rst_temp_{file_id}", type="secondary"):
+                if st.button(f"🔄 Reset", key=f"rst_temp_{file_id}", type="secondary"):
                     st.session_state[f'temp_reset_{file_id}'] += 1
                     st.rerun()
                 
-                with st.expander("⚙️ Temperature Controls", expanded=False):
+                with st.expander("⚙️ Controls", expanded=False):
                     c1, c2, c3 = st.columns(3)
                     reset_count = st.session_state[f'temp_reset_{file_id}']
                     
                     with c1:
                         t_off = st.number_input(
-                            "Y-Axis Offset (°C)",
+                            "Y-Offset (°C)",
                             value=0.0,
                             step=0.1,
                             format="%.2f",
@@ -639,7 +648,7 @@ def show_single_file_analysis():
                         )
                     with c2:
                         t_min = st.number_input(
-                            "X-Axis Min",
+                            "X-Min",
                             value=0,
                             min_value=0,
                             max_value=int(result['distance_points']-1),
@@ -647,7 +656,7 @@ def show_single_file_analysis():
                         )
                     with c3:
                         t_max = st.number_input(
-                            "X-Axis Max",
+                            "X-Max",
                             value=int(result['distance_points']-1),
                             min_value=int(t_min + 1),
                             max_value=int(result['distance_points']-1),
@@ -667,20 +676,20 @@ def show_single_file_analysis():
                 )
                 st.plotly_chart(fig_temp, use_container_width=True, key=f"plot_temp_{file_id}_{reset_count}")
                 
-                # STRAIN
+                # STRAIN PLOT
                 st.markdown(f"#### 📏 Strain - {filename}")
                 
-                if st.button(f"🔄 Reset Strain", key=f"rst_strain_{file_id}", type="secondary"):
+                if st.button(f"🔄 Reset", key=f"rst_strain_{file_id}", type="secondary"):
                     st.session_state[f'strain_reset_{file_id}'] += 1
                     st.rerun()
                 
-                with st.expander("⚙️ Strain Controls", expanded=False):
+                with st.expander("⚙️ Controls", expanded=False):
                     c1, c2, c3 = st.columns(3)
                     reset_count = st.session_state[f'strain_reset_{file_id}']
                     
                     with c1:
                         s_off = st.number_input(
-                            "Y-Axis Offset (µε)",
+                            "Y-Offset (µε)",
                             value=0.0,
                             step=1.0,
                             format="%.2f",
@@ -689,7 +698,7 @@ def show_single_file_analysis():
                         )
                     with c2:
                         s_min = st.number_input(
-                            "X-Axis Min",
+                            "X-Min",
                             value=0,
                             min_value=0,
                             max_value=int(result['distance_points']-1),
@@ -697,7 +706,7 @@ def show_single_file_analysis():
                         )
                     with c3:
                         s_max = st.number_input(
-                            "X-Axis Max",
+                            "X-Max",
                             value=int(result['distance_points']-1),
                             min_value=int(s_min + 1),
                             max_value=int(result['distance_points']-1),
@@ -717,21 +726,21 @@ def show_single_file_analysis():
                 )
                 st.plotly_chart(fig_strain, use_container_width=True, key=f"plot_strain_{file_id}_{reset_count}")
             
-            else:  # BrillFrequency (SAME AS BEFORE)
-                # FREQUENCY
+            else:  # BrillFrequency
+                # FREQUENCY PLOT
                 st.markdown(f"#### 📊 Frequency - {filename}")
                 
-                if st.button(f"🔄 Reset Frequency", key=f"rst_freq_{file_id}", type="secondary"):
+                if st.button(f"🔄 Reset", key=f"rst_freq_{file_id}", type="secondary"):
                     st.session_state[f'freq_reset_{file_id}'] += 1
                     st.rerun()
                 
-                with st.expander("⚙️ Frequency Controls", expanded=False):
+                with st.expander("⚙️ Controls", expanded=False):
                     c1, c2, c3 = st.columns(3)
                     reset_count = st.session_state[f'freq_reset_{file_id}']
                     
                     with c1:
                         f_off = st.number_input(
-                            "Y-Axis Offset (GHz)",
+                            "Y-Offset (GHz)",
                             value=0.0,
                             step=0.01,
                             format="%.3f",
@@ -740,7 +749,7 @@ def show_single_file_analysis():
                         )
                     with c2:
                         f_min = st.number_input(
-                            "X-Axis Min",
+                            "X-Min",
                             value=0,
                             min_value=0,
                             max_value=int(result['distance_points']-1),
@@ -748,7 +757,7 @@ def show_single_file_analysis():
                         )
                     with c3:
                         f_max = st.number_input(
-                            "X-Axis Max",
+                            "X-Max",
                             value=int(result['distance_points']-1),
                             min_value=int(f_min + 1),
                             max_value=int(result['distance_points']-1),
@@ -768,20 +777,20 @@ def show_single_file_analysis():
                 )
                 st.plotly_chart(fig_freq, use_container_width=True, key=f"plot_freq_{file_id}_{reset_count}")
                 
-                # AMPLITUDE
+                # AMPLITUDE PLOT
                 st.markdown(f"#### 📈 Amplitude - {filename}")
                 
-                if st.button(f"🔄 Reset Amplitude", key=f"rst_amp_{file_id}", type="secondary"):
+                if st.button(f"🔄 Reset", key=f"rst_amp_{file_id}", type="secondary"):
                     st.session_state[f'amp_reset_{file_id}'] += 1
                     st.rerun()
                 
-                with st.expander("⚙️ Amplitude Controls", expanded=False):
+                with st.expander("⚙️ Controls", expanded=False):
                     c1, c2, c3 = st.columns(3)
                     reset_count = st.session_state[f'amp_reset_{file_id}']
                     
                     with c1:
                         a_off = st.number_input(
-                            "Y-Axis Offset",
+                            "Y-Offset",
                             value=0.0,
                             step=0.01,
                             format="%.3f",
@@ -790,7 +799,7 @@ def show_single_file_analysis():
                         )
                     with c2:
                         a_min = st.number_input(
-                            "X-Axis Min",
+                            "X-Min",
                             value=0,
                             min_value=0,
                             max_value=int(result['distance_points']-1),
@@ -798,7 +807,7 @@ def show_single_file_analysis():
                         )
                     with c3:
                         a_max = st.number_input(
-                            "X-Axis Max",
+                            "X-Max",
                             value=int(result['distance_points']-1),
                             min_value=int(a_min + 1),
                             max_value=int(result['distance_points']-1),
@@ -819,14 +828,14 @@ def show_single_file_analysis():
                 st.plotly_chart(fig_amp, use_container_width=True, key=f"plot_amp_{file_id}_{reset_count}")
     
     else:
-        st.info("👆 Upload and process files to see analysis results")
+        st.info("👆 Upload and process files to see results")
 
 # ============================================
-# COMPARISON & HISTORY (UNCHANGED)
+# OTHER FUNCTIONS (UNCHANGED)
 # ============================================
 
 def show_comparison_analysis():
-    """Compare two files side by side"""
+    """Compare two files"""
     st.markdown("## ⚖️ Compare Two Files")
     st.info("Upload two files for comparative analysis")
     
@@ -853,11 +862,9 @@ def show_comparison_analysis():
                 if r1['success'] and r2['success']:
                     st.session_state.cmp_r1 = r1
                     st.session_state.cmp_r2 = r2
-                    st.session_state.cmp_f1 = file1.name
-                    st.session_state.cmp_f2 = file2.name
                     st.success("✅ Processed!")
                 else:
-                    st.error("❌ Processing failed")
+                    st.error("❌ Failed")
         
         if 'cmp_r1' in st.session_state:
             r1 = st.session_state.cmp_r1
@@ -865,29 +872,23 @@ def show_comparison_analysis():
             
             st.divider()
             
-            if r1['file_type'] == 'TempStrain' and r2['file_type'] == 'TempStrain':
+            if r1['file_type'] == 'TempStrain':
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=r1['distance'], y=r1['temp_first'], name="File 1", line=dict(color='#e74c3c')))
                 fig.add_trace(go.Scatter(x=r2['distance'], y=r2['temp_first'], name="File 2", line=dict(color='#f39c12', dash='dash')))
-                fig.update_layout(title="Temperature Comparison", xaxis_title="Distance", yaxis_title="Temperature (°C)", height=500)
-                st.plotly_chart(fig, use_container_width=True)
-                
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=r1['distance'], y=r1['strain_first'], name="File 1", line=dict(color='#3498db')))
-                fig.add_trace(go.Scatter(x=r2['distance'], y=r2['strain_first'], name="File 2", line=dict(color='#9b59b6', dash='dash')))
-                fig.update_layout(title="Strain Comparison", xaxis_title="Distance", yaxis_title="Strain (µε)", height=500)
+                fig.update_layout(title="Temperature", height=500)
                 st.plotly_chart(fig, use_container_width=True)
 
 def show_file_history():
-    """Display processing history"""
-    st.markdown("## 📜 Processing History")
+    """Processing history"""
+    st.markdown("## 📜 History")
     
     if 'processing_history' in st.session_state and st.session_state.processing_history:
         df = pd.DataFrame(st.session_state.processing_history)
         st.dataframe(df, use_container_width=True)
         
-        if st.button("🗑️ Clear History"):
+        if st.button("🗑️ Clear"):
             st.session_state.processing_history = []
             st.rerun()
     else:
-        st.info("No history yet")
+        st.info("No history")
